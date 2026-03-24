@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="banner.png" alt="Krishika AI Banner" width="100%">
+</p>
+
 # 🌿 Krishika AI — Crop Disease Detector
 
 > AI-powered plant disease diagnosis using VGG19 + SVM across 17 crops — built for real-world agricultural impact.
