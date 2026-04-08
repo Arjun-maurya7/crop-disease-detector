@@ -1,0 +1,722 @@
+# -*- coding: utf-8 -*-
+"""
+Krishika AI — app.py
+Premium dark-mode agricultural diagnostics UI.
+VGG19 + SVM | Gradio 6.0+ | Hugging Face Spaces Optimized
+
+OPTIMIZATIONS:
+  - Lazy loading: VGG19 + SVM models load only on first prediction
+  - Background thread warms up the model silently after UI loads
+  - share=True removed (not supported on HF Spaces)
+  - TF set to CPU-only quiet mode to suppress startup noise
+  - SVM models loaded on-demand and cached in memory
+"""
+
+import os
+import threading
+import gradio as gr
+
+# ── Silence TensorFlow logs before import ──────────────────────────────────
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+
+# ─────────────────────────────────────────
+# 1. CONFIGURATION
+# ─────────────────────────────────────────
+BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_ROOT = os.path.join(BASE_DIR, "output")
+IMG_SIZE    = 224
+
+# ─────────────────────────────────────────
+# 2. CSS  —  Tropical Green Premium Theme
+# ─────────────────────────────────────────
+CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body, .gradio-container {
+    background: #051610 !important;
+    font-family: 'DM Sans', sans-serif !important;
+    color: #f1f5f9 !important;
+    min-height: 100vh;
+}
+
+/* Animated mesh background */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 60% 60% at 30% 0%,   rgba(16,185,129,0.18) 0%, transparent 60%),
+        radial-gradient(ellipse 70% 80% at 75% 100%,  rgba(5,150,105,0.15) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 50% at 50% 50%,   rgba(52,211,153,0.08) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.gradio-container {
+    max-width: 1100px !important;
+    margin: 0 auto !important;
+    padding: 0 24px 60px !important;
+    position: relative;
+    z-index: 1;
+}
+
+/* ── Hero Header ── */
+.kr-hero {
+    text-align: center;
+    padding: 56px 20px 40px;
+    position: relative;
+}
+
+.kr-hero::after {
+    content: '';
+    display: block;
+    width: 120px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #10b981, transparent);
+    margin: 28px auto 0;
+}
+
+.kr-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.kr-logo-icon {
+    width: 52px;
+    height: 52px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    box-shadow: 0 0 30px rgba(16,185,129,0.35);
+}
+
+.kr-title {
+    font-family: 'Syne', sans-serif !important;
+    font-size: 2.8rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -1.5px !important;
+    background: linear-gradient(135deg, #ecfdf5 30%, #6ee7b7) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    line-height: 1 !important;
+}
+
+.kr-subtitle {
+    color: #6ee7b7 !important;
+    font-size: 0.95rem !important;
+    font-weight: 400 !important;
+    letter-spacing: 2px !important;
+    text-transform: uppercase !important;
+    opacity: 0.8 !important;
+}
+
+/* ── Stat Pills ── */
+.kr-stats {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 36px;
+}
+
+.kr-pill {
+    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16,185,129,0.2);
+    border-radius: 100px;
+    padding: 6px 18px;
+    font-size: 0.78rem;
+    color: #6ee7b7;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+/* ── Cards ── */
+.kr-card {
+    background: rgba(12, 35, 30, 0.7) !important;
+    border: 1px solid rgba(16,185,129,0.25) !important;
+    border-radius: 24px !important;
+    padding: 28px !important;
+    backdrop-filter: blur(25px) !important;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.5) !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.kr-card:hover {
+    background: rgba(15, 45, 40, 0.75) !important;
+    border-color: rgba(16,185,129,0.5) !important;
+    transform: translateY(-4px);
+}
+
+.kr-card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: #f1f5f9 !important;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.kr-card-title::before {
+    content: '';
+    display: block;
+    width: 6px;
+    height: 6px;
+    background: #10b981;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #10b981;
+}
+
+/* ── Gradio Component Overrides ── */
+label, label span, label p,
+.gradio-container label, .gradio-container label span,
+.block label, .block label span,
+[data-testid] label, [data-testid] label span,
+.form label span, .wrap label span,
+.gradio-dropdown label span, .gradio-image label span {
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #94a3b8 !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 1.5px !important;
+    text-transform: uppercase !important;
+    -webkit-text-fill-color: #94a3b8 !important;
+    opacity: 1 !important;
+}
+
+select, .gradio-dropdown select, .wrap > div > div,
+input, textarea, [data-testid="dropdown"] input,
+.gradio-dropdown input, .svelte-input input {
+    background: rgba(30, 41, 50, 0.9) !important;
+    border: 1px solid rgba(16,185,129,0.2) !important;
+    border-radius: 14px !important;
+    color: #e2e8f0 !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 0.95rem !important;
+    padding: 12px 16px !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+
+.gradio-dropdown span, .gradio-dropdown div,
+[data-testid="dropdown"] span, [data-testid="dropdown"] div,
+.wrap span, .multiselect span {
+    color: #e2e8f0 !important;
+}
+
+.gradio-dropdown .selected-item, .gradio-dropdown .value-string,
+.wrap .value, .wrap .item {
+    color: #f1f5f9 !important;
+    font-size: 0.95rem !important;
+}
+
+/* ── Dropdown popup list ── */
+.gradio-dropdown ul, .gradio-dropdown .options,
+.gradio-dropdown [role="listbox"], ul.options, .options {
+    background: #0f1a22 !important;
+    border: 1px solid rgba(16,185,129,0.25) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.6) !important;
+    max-height: 280px !important;
+    overflow-y: auto !important;
+    scrollbar-width: thin !important;
+    scrollbar-color: #10b981 #0f1a22 !important;
+}
+
+.gradio-dropdown li, .gradio-dropdown [role="option"], ul.options li {
+    background: transparent !important;
+    color: #cbd5e1 !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 0.93rem !important;
+    padding: 10px 16px !important;
+    cursor: pointer !important;
+    transition: background 0.15s, color 0.15s !important;
+}
+
+.gradio-dropdown li:hover, ul.options li:hover {
+    background: rgba(16,185,129,0.12) !important;
+    color: #6ee7b7 !important;
+}
+
+.gradio-dropdown [aria-selected="true"], ul.options li.selected {
+    background: rgba(16,185,129,0.18) !important;
+    color: #34d399 !important;
+    font-weight: 600 !important;
+}
+
+select:focus, .wrap > div > div:focus-within {
+    border-color: #10b981 !important;
+    box-shadow: 0 0 0 3px rgba(16,185,129,0.12) !important;
+    outline: none !important;
+}
+
+/* Fix upload area */
+.gradio-image > div {
+    background: rgba(0,0,0,0.4) !important;
+}
+
+.gradio-image .upload-text, .gradio-image p,
+.gradio-image span, .gradio-image .svelte-1gfkn6j {
+    color: #10b981 !important;
+    font-weight: 500 !important;
+    opacity: 1 !important;
+}
+
+.gradio-image .icon-wrap svg { color: #10b981 !important; }
+
+/* Button */
+button.primary, .gr-button-primary {
+    background: linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%) !important;
+    border: none !important;
+    border-radius: 16px !important;
+    color: #fff !important;
+    font-family: 'Syne', sans-serif !important;
+    font-size: 0.95rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+    height: 54px !important;
+    width: 100% !important;
+    cursor: pointer !important;
+    position: relative !important;
+    overflow: hidden !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    box-shadow: 0 4px 20px rgba(16,185,129,0.3) !important;
+}
+
+button.primary::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    transition: left 0.5s ease;
+}
+
+button.primary:hover::before { left: 100%; }
+button.primary:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 30px rgba(16,185,129,0.45) !important;
+}
+button.primary:active { transform: translateY(0) !important; }
+
+.gradio-html { background: transparent !important; border: none !important; padding: 0 !important; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0f172a; }
+::-webkit-scrollbar-thumb { background: #1e3a2e; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #10b981; }
+
+.kr-footer {
+    text-align: center;
+    padding: 32px 0 0;
+    color: #334155;
+    font-size: 0.8rem;
+    letter-spacing: 1px;
+}
+"""
+
+# ─────────────────────────────────────────
+# 3. LAZY MODEL STATE
+# ─────────────────────────────────────────
+_model_lock = threading.Lock()
+_feature_extractor = None   # loaded on first call
+_loaded_models     = {}     # SVM per-crop cache
+_model_ready       = False
+
+def _load_feature_extractor():
+    """Build the VGG19 feature extractor (cached after first call)."""
+    global _feature_extractor, _model_ready
+    # Heavy imports done here — not at module level
+    import numpy as np          # noqa: F401  (kept in function scope)
+    import tensorflow as tf
+    from tensorflow.keras.applications.vgg19 import VGG19
+    from tensorflow.keras.layers import GlobalAveragePooling2D
+    from tensorflow.keras.models import Model
+
+    tf.get_logger().setLevel("ERROR")
+
+    base = VGG19(weights="imagenet", include_top=False,
+                 input_shape=(IMG_SIZE, IMG_SIZE, 3))
+    base.trainable = False
+    x = GlobalAveragePooling2D()(base.output)
+    _feature_extractor = Model(inputs=base.input, outputs=x)
+    _model_ready = True
+    print("✅ Krishika Engine ready.")
+
+
+def _get_svm(crop_type: str):
+    """Load and cache SVM for a specific crop on demand."""
+    if crop_type in _loaded_models:
+        return _loaded_models[crop_type]
+
+    import joblib
+    model_path = os.path.join(OUTPUT_ROOT, crop_type, f"{crop_type}_model.pkl")
+    if not os.path.exists(model_path):
+        return None
+    model = joblib.load(model_path)
+    _loaded_models[crop_type] = model
+    return model
+
+
+def _background_warmup():
+    """Load VGG19 in a background thread so UI is instant."""
+    with _model_lock:
+        if _feature_extractor is None:
+            _load_feature_extractor()
+
+
+# ─────────────────────────────────────────
+# 4. CLASS MAPPINGS
+# ─────────────────────────────────────────
+class_mappings = {
+    "tomato":   ["bacterial_spot","early_blight","Fusarium Wilt","healthy_leaf","late_blight",
+                 "leaf_curl","leaf_miner","leaf_mold","septoria_leaf","spider mites","verticillium wilt"],
+    "apple":    ["Apple black_spot","Apple Brown_spot","Apple Normal"],
+    "apricot":  ["Apricot blight leaf disease","Apricot Normal","Apricot shot_hole"],
+    "beans":    ["Bean bean rust image","Bean Fungal_leaf disease","Bean Normal leaf","Bean shot_hole"],
+    "brinjal":  ["Healthy Leaf","Insect Pest Disease","Leaf Spot Disease","Mosaic Virus Disease","White Mold Disease","Wilt Disease"],
+    "cashew":   ["Cashew healthy","Cashew leaf miner","Cashew red rust"],
+    "cherry":   ["Cherry brown_spot","Cherry Leaf Scorch","Cherry Normal leaf","Cherry purple leaf spot","Cherry_shot hole disease"],
+    "corn":     ["Corn Fungal leaf","Corn gray leaf spot","Corn holcus_ leaf spot","Corn Normal leaf"],
+    "cucumber": ["Anthracnose","Bacterial Wilt","Belly Rot","Downy Mildew","Fresh Cucumber","Fresh Leaf","Gummy Stem Blight","Pythium Fruit Rot"],
+    "fig":      ["Fig Blight_leaf disease","Fig Brown spot","Fig normal leaf","Fig_rust leaf"],
+    "grape":    ["Grape Anthracnose leaf","Grape Brown spot leaf","Grape Downy mildew leaf","Grape Mites_leaf disease",
+                 "Grape Normal_leaf","Grape Powdery_mildew leaf","Grape shot hole leaf disease"],
+    "guava":    ["Canker","Curling","Healthy","Leaf Spot","Nutritional Deficiency","Powdery Mildew","Rust"],
+    "lychee":   ["Algal Spot Indirect","Anthracnose Cloudy","Dry Leaves","Entomosporium Spot","Leaf Mites Direct","Mayetiola PostRain"],
+    "potato":   ["Fungi","Healthy","Nematode"],
+    "radish":   ["Black leaf spot","Downey mildew","flea beetle","Fresh leaf","Mosaic virus"],
+    "rice":     ["bacterial_leaf_blight","brown_spot","leaf_blast","rice_healthy"],
+    "walnut":   ["Walnut Anthracnose_leaf disease","Walnut Blotch_leaf disease","Walnut leaf gall mite","Walnut Normal_leaf","Walnut Shot_hole"],
+}
+
+# ─────────────────────────────────────────
+# 5. REMEDY DATABASE
+# ─────────────────────────────────────────
+agri_database = {
+    "tomato": {
+        "late_blight":        {"cause": "Phytophthora infestans (water mould)",
+                               "remedy": "Apply Chlorothalonil or Mancozeb at 7-day intervals. Use Trichoderma harzianum for organic control. Remove and destroy infected foliage.",
+                               "severity": "high"},
+        "early_blight":       {"cause": "Alternaria solani fungus",
+                               "remedy": "Apply Azoxystrobin or Copper-based fungicide. Ensure proper plant spacing for airflow.",
+                               "severity": "medium"},
+        "bacterial_spot":     {"cause": "Xanthomonas vesicatoria bacteria",
+                               "remedy": "Copper bactericide sprays. Avoid overhead irrigation. Crop rotation recommended.",
+                               "severity": "medium"},
+        "leaf_curl":          {"cause": "Tomato Yellow Leaf Curl Virus (TYLCV) via whiteflies",
+                               "remedy": "Apply Imidacloprid to control whitefly vectors. Use reflective mulch.",
+                               "severity": "high"},
+        "leaf_miner":         {"cause": "Liriomyza trifolii (insect larvae)",
+                               "remedy": "Apply Spinosad or Abamectin. Introduce natural predators.",
+                               "severity": "medium"},
+        "leaf_mold":          {"cause": "Passalora fulva fungus (humid conditions)",
+                               "remedy": "Improve ventilation. Apply Chlorothalonil or Mancozeb.",
+                               "severity": "medium"},
+        "septoria_leaf":      {"cause": "Septoria lycopersici fungus",
+                               "remedy": "Remove lower infected leaves. Apply copper fungicide.",
+                               "severity": "medium"},
+        "spider mites":       {"cause": "Tetranychus urticae (Two-spotted spider mite)",
+                               "remedy": "Apply Abamectin or Spiromesifen miticides. Increase humidity.",
+                               "severity": "medium"},
+        "verticillium wilt":  {"cause": "Verticillium dahliae soil-borne fungus",
+                               "remedy": "Soil solarization. Use resistant varieties (VF-labeled).",
+                               "severity": "high"},
+        "fusarium wilt":      {"cause": "Fusarium oxysporum f. sp. lycopersici",
+                               "remedy": "Plant resistant cultivars. Soil amendment with Trichoderma.",
+                               "severity": "high"},
+        "healthy_leaf":       {"cause": "None",
+                               "remedy": "Continue regular NPK fertilization and drip irrigation.",
+                               "severity": "healthy"},
+    },
+    "rice": {
+        "bacterial_leaf_blight": {"cause": "Xanthomonas oryzae pv. oryzae",
+                                  "remedy": "Apply Copper oxychloride. Use resistant varieties.",
+                                  "severity": "high"},
+        "brown_spot":            {"cause": "Helminthosporium oryzae fungus",
+                                  "remedy": "Apply Mancozeb or Propiconazole.",
+                                  "severity": "medium"},
+        "leaf_blast":            {"cause": "Magnaporthe oryzae fungus",
+                                  "remedy": "Apply Tricyclazole or Isoprothiolane at boot stage.",
+                                  "severity": "high"},
+        "rice_healthy":          {"cause": "None",
+                                  "remedy": "Maintain water management and balanced fertilization.",
+                                  "severity": "healthy"},
+    },
+    "potato": {
+        "fungi":    {"cause": "Mixed fungal pathogens (Rhizoctonia, Fusarium)",
+                     "remedy": "Apply Mancozeb or Chlorothalonil. Treat seed tubers before planting.",
+                     "severity": "high"},
+        "healthy":  {"cause": "None",
+                     "remedy": "Continue hilling and irrigation schedule. Apply balanced NPK.",
+                     "severity": "healthy"},
+        "nematode": {"cause": "Root-knot nematodes (Meloidogyne spp.)",
+                     "remedy": "Soil fumigation with Carbofuran. Crop rotation with non-host crops.",
+                     "severity": "high"},
+    },
+    "apple": {
+        "apple black_spot": {"cause": "Venturia inaequalis (scab fungus)",
+                             "remedy": "Apply Captan or Myclobutanil at green tip. Prune for canopy airflow.",
+                             "severity": "high"},
+        "apple brown_spot": {"cause": "Marssonina coronaria fungal infection",
+                             "remedy": "Apply Dithianon or Mancozeb. Improve drainage.",
+                             "severity": "medium"},
+        "apple normal":     {"cause": "None",
+                             "remedy": "Continue seasonal pruning and calcium foliar spray.",
+                             "severity": "healthy"},
+    },
+    "guava": {
+        "canker":                {"cause": "Pestalotiopsis psidii fungus",
+                                 "remedy": "Prune infected branches. Apply Copper oxychloride.",
+                                 "severity": "high"},
+        "curling":               {"cause": "Aphid infestation and thrips feeding",
+                                 "remedy": "Spray Imidacloprid or Dimethoate. Use sticky yellow traps.",
+                                 "severity": "medium"},
+        "healthy":               {"cause": "None",
+                                 "remedy": "Apply micronutrient spray. Maintain drip irrigation.",
+                                 "severity": "healthy"},
+        "leaf spot":             {"cause": "Colletotrichum gloeosporioides",
+                                 "remedy": "Apply Carbendazim or Mancozeb. Remove infected leaves.",
+                                 "severity": "medium"},
+        "nutritional deficiency":{"cause": "Zinc or Iron micronutrient deficiency",
+                                 "remedy": "Foliar spray of ZnSO4 (0.5%) or FeSO4 (0.2%).",
+                                 "severity": "medium"},
+        "powdery mildew":        {"cause": "Oidium psidii fungus (dry season)",
+                                 "remedy": "Spray Wettable Sulphur or Hexaconazole.",
+                                 "severity": "medium"},
+        "rust":                  {"cause": "Puccinia psidii rust fungus",
+                                 "remedy": "Apply Propiconazole or Triadimefon.",
+                                 "severity": "high"},
+    },
+}
+
+# ─────────────────────────────────────────
+# 6. REPORT GENERATOR
+# ─────────────────────────────────────────
+SEVERITY_CFG = {
+    "healthy": {
+        "bg":           "linear-gradient(135deg, rgba(6,78,59,0.35), rgba(5,46,22,0.3))",
+        "border":       "rgba(16,185,129,0.4)",
+        "badge_bg":     "rgba(16,185,129,0.2)",
+        "badge_color":  "#6ee7b7",
+        "badge_border": "rgba(16,185,129,0.4)",
+        "icon": "🌿", "status": "HEALTHY", "dot": "#10b981",
+    },
+    "medium": {
+        "bg":           "linear-gradient(135deg, rgba(120,53,15,0.35), rgba(78,36,10,0.3))",
+        "border":       "rgba(245,158,11,0.4)",
+        "badge_bg":     "rgba(245,158,11,0.15)",
+        "badge_color":  "#fcd34d",
+        "badge_border": "rgba(245,158,11,0.4)",
+        "icon": "🔍", "status": "MONITOR", "dot": "#f59e0b",
+    },
+    "high": {
+        "bg":           "linear-gradient(135deg, rgba(127,29,29,0.4), rgba(69,10,10,0.35))",
+        "border":       "rgba(239,68,68,0.45)",
+        "badge_bg":     "rgba(239,68,68,0.15)",
+        "badge_color":  "#fca5a5",
+        "badge_border": "rgba(239,68,68,0.4)",
+        "icon": "⚠️", "status": "DANGER", "dot": "#ef4444",
+    },
+}
+
+PLACEHOLDER_HTML = """
+<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:320px;gap:16px;opacity:0.4;'>
+    <div style='font-size:48px;filter:grayscale(1);'>🌿</div>
+    <p style='font-family:"DM Sans",sans-serif;color:#64748b;font-size:0.9rem;
+        letter-spacing:1px;text-transform:uppercase;'>Awaiting diagnosis</p>
+</div>"""
+
+LOADING_HTML = """
+<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:320px;gap:16px;'>
+    <div style='font-size:48px;animation:spin 2s linear infinite;'>🌿</div>
+    <p style='font-family:"DM Sans",sans-serif;color:#10b981;font-size:0.9rem;
+        letter-spacing:1px;text-transform:uppercase;'>Model loading… please wait</p>
+    <style>@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
+</div>"""
+
+
+def generate_report(disease_name: str, crop_type: str) -> str:
+    data     = agri_database.get(crop_type.lower(), {}).get(disease_name.lower(), {})
+    cause    = data.get("cause",   "Biological analysis pending — consult your local agri-lab.")
+    remedy   = data.get("remedy",  "Contact your nearest Krishi Vigyan Kendra for a tailored recommendation.")
+    severity = data.get("severity", "medium")
+    cfg      = SEVERITY_CFG.get(severity, SEVERITY_CFG["medium"])
+    label    = disease_name.replace("_", " ").title()
+
+    return f"""
+<div style='background:{cfg["bg"]};border:1px solid {cfg["border"]};border-radius:22px;
+    padding:28px 28px 24px;font-family:"DM Sans",sans-serif;
+    box-shadow:0 8px 40px rgba(0,0,0,0.5);animation:fadeUp 0.4s ease;'>
+<style>@keyframes fadeUp{{from{{opacity:0;transform:translateY(12px)}}to{{opacity:1;transform:translateY(0)}}}}</style>
+
+<div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;gap:12px;'>
+    <div style='display:flex;align-items:center;gap:14px;'>
+        <div style='width:48px;height:48px;border-radius:14px;background:rgba(0,0,0,0.3);
+            border:1px solid {cfg["border"]};display:flex;align-items:center;justify-content:center;font-size:22px;'>
+            {cfg["icon"]}
+        </div>
+        <div>
+            <div style='font-size:0.68rem;font-weight:600;letter-spacing:2px;text-transform:uppercase;
+                color:#64748b;margin-bottom:4px;'>{crop_type.upper()} · DIAGNOSIS</div>
+            <div style='font-family:"Syne",sans-serif;font-size:1.25rem;font-weight:700;
+                color:#f1f5f9;line-height:1.2;'>{label}</div>
+        </div>
+    </div>
+    <div style='background:{cfg["badge_bg"]};color:{cfg["badge_color"]};
+        border:1px solid {cfg["badge_border"]};border-radius:100px;padding:5px 14px;
+        font-size:0.7rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+        white-space:nowrap;display:flex;align-items:center;gap:6px;'>
+        <span style='width:6px;height:6px;border-radius:50%;background:{cfg["dot"]};
+            display:inline-block;box-shadow:0 0 6px {cfg["dot"]};'></span>
+        {cfg["status"]}
+    </div>
+</div>
+
+<div style='height:1px;background:linear-gradient(90deg,{cfg["border"]},transparent);margin-bottom:20px;'></div>
+
+<div style='display:grid;gap:12px;'>
+    <div style='background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);
+        border-radius:14px;padding:16px 18px;'>
+        <div style='font-size:0.65rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+            color:#475569;margin-bottom:7px;'>🔬 Biological Cause</div>
+        <div style='color:#cbd5e1;font-size:0.92rem;line-height:1.6;'>{cause}</div>
+    </div>
+    <div style='background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);
+        border-radius:14px;padding:16px 18px;'>
+        <div style='font-size:0.65rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+            color:#475569;margin-bottom:7px;'>💊 Recommended Treatment</div>
+        <div style='color:#cbd5e1;font-size:0.92rem;line-height:1.6;'>{remedy}</div>
+    </div>
+</div>
+
+<div style='margin-top:18px;font-size:0.7rem;color:#334155;letter-spacing:0.5px;text-align:right;'>
+    Powered by VGG19 + SVM · Krishika AI
+</div>
+</div>"""
+
+# ─────────────────────────────────────────
+# 7. PREDICTION (LAZY)
+# ─────────────────────────────────────────
+def predict_disease(crop_type: str, image):
+    if image is None:
+        return "<div style='text-align:center;padding:40px;color:#475569;font-family:DM Sans,sans-serif;'>Please upload a leaf image to begin analysis.</div>"
+
+    # If model not ready yet, block until it finishes loading
+    if not _model_ready:
+        with _model_lock:
+            if not _model_ready:
+                _load_feature_extractor()
+
+    plant_lower = crop_type.lower()
+    if plant_lower not in class_mappings:
+        return f"<div style='text-align:center;padding:40px;color:#ef4444;font-family:DM Sans,sans-serif;'>Unknown crop type selected ({crop_type}).</div>"
+
+    svm = _get_svm(crop_type)
+    if svm is None:
+        return "<div style='text-align:center;padding:40px;color:#ef4444;font-family:DM Sans,sans-serif;'>Selected model is currently unavailable.</div>"
+
+    try:
+        import cv2
+        import numpy as np
+        from tensorflow.keras.applications.vgg19 import preprocess_input
+
+        img_resized = cv2.resize(image, (IMG_SIZE, IMG_SIZE))
+        img_batch   = np.expand_dims(img_resized.astype(float), axis=0)
+        features    = _feature_extractor.predict(preprocess_input(img_batch), verbose=0)
+        pred_idx    = svm.predict(features)[0]
+
+        plant_lower  = crop_type.lower()
+        disease_name = (class_mappings[plant_lower][pred_idx]
+                        if pred_idx < len(class_mappings[plant_lower])
+                        else f"Unknown Class ({pred_idx})")
+        return generate_report(disease_name, crop_type)
+
+    except Exception as e:
+        return f"<div style='color:#ef4444;padding:20px;font-family:DM Sans,sans-serif;'>System Error: {e}</div>"
+
+
+# ─────────────────────────────────────────
+# 8. UI
+# ─────────────────────────────────────────
+crop_list = (
+    [d for d in os.listdir(OUTPUT_ROOT) if os.path.isdir(os.path.join(OUTPUT_ROOT, d))]
+    if os.path.exists(OUTPUT_ROOT) else list(class_mappings.keys())
+)
+
+with gr.Blocks(title="Krishika AI", theme=gr.themes.Base(), css=CSS) as app:
+
+    gr.HTML(f"""
+    <div class="kr-hero">
+        <div class="kr-logo">
+            <div class="kr-logo-icon">🌿</div>
+            <h1 class="kr-title">Krishika AI</h1>
+        </div>
+        <p class="kr-subtitle">Deep Leaf Diagnostics &nbsp;·&nbsp; VGG19 + SVM</p>
+    </div>
+    <div class="kr-stats">
+        <span class="kr-pill">17 Crop Types</span>
+        <span class="kr-pill">97.8% Avg Accuracy</span>
+        <span class="kr-pill">Real-time Diagnosis</span>
+        <span class="kr-pill">Instant Remedy Reports</span>
+    </div>
+    """)
+
+    with gr.Row(equal_height=False):
+        with gr.Column(scale=4):
+            gr.HTML('<div class="kr-card"><div class="kr-card-title">Input Parameters</div>')
+            gr.HTML('<p style="font-family:DM Sans,sans-serif;font-size:0.75rem;font-weight:600;'
+                    'letter-spacing:2px;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;">📂 Target Crop</p>')
+            crop_in = gr.Dropdown(
+                choices=crop_list,
+                label="",
+                value=crop_list[0] if crop_list else None,
+                container=False,
+            )
+            img_in = gr.Image(
+                label="Upload Leaf Image",
+                type="numpy",
+                sources=["upload", "webcam"],
+            )
+            btn = gr.Button("⚡  Run Deep Diagnosis", variant="primary", elem_classes="primary")
+            gr.HTML('</div>')
+
+        with gr.Column(scale=5):
+            gr.HTML('<div class="kr-card"><div class="kr-card-title">Diagnosis Report</div>')
+            report_out = gr.HTML(value=PLACEHOLDER_HTML)
+            gr.HTML('</div>')
+
+    gr.HTML("""
+    <div class="kr-footer">
+        Krishika AI &nbsp;·&nbsp; Smart Agriculture Diagnosis &nbsp;·&nbsp; Built for Bharat 🇮🇳
+    </div>
+    """)
+
+    btn.click(predict_disease, inputs=[crop_in, img_in], outputs=report_out)
+
+# ─────────────────────────────────────────
+# 9. LAUNCH
+# ─────────────────────────────────────────
+if __name__ == "__main__":
+    # Start background warm-up immediately (non-blocking)
+    t = threading.Thread(target=_background_warmup, daemon=True)
+    t.start()
+
+    print("\n🌿 Krishika AI starting (model loading in background)...\n")
+    app.launch()   # No share=True — not supported on HF Spaces

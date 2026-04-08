@@ -1,6 +1,6 @@
 tensorflow
 gradio
 joblib
-opencv-python
+opencv-python-headless
 scikit-learn
 numpy
