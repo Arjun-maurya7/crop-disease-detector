@@ -6,11 +6,14 @@
 
 > AI-powered plant disease diagnosis using VGG19 + SVM across 17 crops — built for real-world agricultural impact.
 
+[![Hugging Face Spaces](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-yellow.svg?style=flat-square)](https://huggingface.co/spaces/Arjun-Maurya/krishika-ai)
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square&logo=python)
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange?style=flat-square&logo=tensorflow)
 ![Gradio](https://img.shields.io/badge/Gradio-6.0%2B-purple?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Crops](https://img.shields.io/badge/Crops_Supported-17-brightgreen?style=flat-square)
+
+🔗 **Live Hugging Face Demo:** [https://huggingface.co/spaces/Arjun-Maurya/krishika-ai](https://huggingface.co/spaces/Arjun-Maurya/krishika-ai)
 
 ---
 
@@ -103,8 +106,12 @@ crop-disease-detector/
 │   │   └── rice_model.pkl
 │   └── ...
 │
+├── evaluation_results/   # Per-crop confusion matrices & dashboard
 ├── Training.ipynb        # Model training pipeline
-├── interface.py          # Gradio web app (Krishika AI)
+├── evaluate_models.py    # Per-crop accuracy, precision, recall & F1 evaluation
+├── model_performance.html # Interactive model evaluation dashboard
+├── app.py                # Production Gradio web app (Krishika AI)
+├── Dockerfile            # Container deployment definition
 └── README.md
 ```
 
@@ -121,10 +128,23 @@ Each crop will be trained and saved as `output/<crop>/<crop>_model.pkl`.
 ### Step 2 — Launch the Interface
 
 ```bash
-python interface.py
+python app.py
 ```
 
-This will start the Gradio app. Open the local or public URL printed in the terminal.
+This will start the Krishika AI Gradio app locally on `http://localhost:7860`.
+
+### Step 3 (Optional) — Run via Docker
+
+```bash
+docker build -t krishika-ai .
+docker run -p 7860:7860 krishika-ai
+```
+
+### Step 4 (Optional) — Run Comprehensive Model Evaluation
+
+```bash
+python evaluate_models.py
+```
 
 ---
 

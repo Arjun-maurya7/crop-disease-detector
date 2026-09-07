@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Krishika AI — Model Performance Dashboard</title>
+  <meta name="description" content="VGG19 + SVM crop disease detection model performance across 17 crops — Krishika AI by Arjun Maurya" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #050d1a;
+      --bg-card: #0b1829;
+      --bg-card2: #0f2035;
+      --accent-green: #00e87a;
+      --accent-teal: #00c9a7;
+      --accent-blue: #3b82f6;
+      --accent-yellow: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-purple: #8b5cf6;
+      --text-primary: #f0f6ff;
+      --text-secondary: #8ba3bf;
+      --border: rgba(0, 232, 122, 0.12);
+      --glow-green: rgba(0, 232, 122, 0.18);
+      --glow-blue: rgba(59, 130, 246, 0.15);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated bg ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% -10%, rgba(0,232,122,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 110%, rgba(59,130,246,0.08) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page-wrap { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0,232,122,0.08);
+      border: 1px solid rgba(0,232,122,0.25);
+      border-radius: 999px;
+      padding: 6px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent-green);
+      letter-spacing: 0.06em;
+      margin-bottom: 22px;
+      text-transform: uppercase;
+    }
+    .badge .dot {
+      width: 7px; height: 7px;
+      background: var(--accent-green);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity:1; transform:scale(1); }
+      50% { opacity:.5; transform:scale(1.4); }
+    }
+    .header h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #fff 0%, var(--accent-green) 60%, var(--accent-teal) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 14px;
+    }
+    .header p {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin: 0 auto;
+      line-height: 1.7;
+    }
+    .header .arch-tag {
+      display: inline-flex;
+      gap: 10px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .arch-tag span {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 5px 14px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: #adc8e8;
+    }
+
+    /* ── Stat cards row ── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 48px;
+    }
+    @media(max-width:700px) { .stats-row { grid-template-columns: repeat(2,1fr); } }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 20px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      transition: transform .25s, border-color .25s;
+    }
+    .stat-card:hover { transform: translateY(-4px); border-color: rgba(0,232,122,0.35); }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: var(--glow-green);
+      opacity: 0;
+      transition: opacity .25s;
+    }
+    .stat-card:hover::before { opacity: 1; }
+    .stat-icon { font-size: 1.7rem; margin-bottom: 8px; }
+    .stat-value {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.95rem;
+      font-weight: 800;
+      color: var(--accent-green);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .stat-label { font-size: 12px; color: var(--text-secondary); font-weight: 500; letter-spacing: 0.04em; }
+
+    /* ── Section title ── */
+    .section-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── Bar chart card ── */
+    .chart-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px 28px;
+      margin-bottom: 32px;
+    }
+
+    .bar-list { display: flex; flex-direction: column; gap: 13px; }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 100px 1fr 64px;
+      align-items: center;
+      gap: 12px;
+    }
+    @media(max-width:500px) { .bar-row { grid-template-columns: 80px 1fr 56px; } }
+
+    .bar-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .bar-track {
+      background: rgba(255,255,255,0.05);
+      border-radius: 999px;
+      height: 10px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      width: 0%;
+      transition: width 1.4s cubic-bezier(.16,1,.3,1);
+    }
+    .bar-pct {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    /* Colour stops */
+    .tier-s  { background: linear-gradient(90deg, #00e87a, #00ffa3); }
+    .tier-a  { background: linear-gradient(90deg, #22c55e, #4ade80); }
+    .tier-b  { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+    .tier-c  { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .tier-d  { background: linear-gradient(90deg, #ef4444, #f87171); }
+    .color-s { color: #00e87a; }
+    .color-a { color: #4ade80; }
+    .color-b { color: #60a5fa; }
+    .color-c { color: #fbbf24; }
+    .color-d { color: #f87171; }
+
+    /* ── Details grid ── */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .detail-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      transition: transform .2s, border-color .2s, box-shadow .2s;
+      cursor: default;
+    }
+    .detail-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(0,232,122,0.3);
+      box-shadow: 0 8px 32px rgba(0,232,122,0.07);
+    }
+    .dc-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .dc-name {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .dc-acc {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.1rem;
+      font-weight: 800;
+    }
+    .dc-meta {
+      display: flex;
+      gap: 10px;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .dc-meta span {
+      background: rgba(255,255,255,0.04);
+      border-radius: 6px;
+      padding: 3px 9px;
+    }
+    .dc-bar-track {
+      background: rgba(255,255,255,0.05);
+      border-radius: 999px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .dc-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      width: 0%;
+      transition: width 1.6s cubic-bezier(.16,1,.3,1);
+    }
+    .dc-classes {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* ── Arch block ── */
+    .arch-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      margin-bottom: 32px;
+    }
+    .arch-pipeline {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0;
+      margin-top: 20px;
+    }
+    .arch-node {
+      background: var(--bg-card2);
+      border: 1px solid rgba(0,232,122,0.2);
+      border-radius: 14px;
+      padding: 16px 22px;
+      text-align: center;
+      min-width: 130px;
+    }
+    .arch-node .node-icon { font-size: 1.5rem; margin-bottom: 6px; }
+    .arch-node .node-title { font-weight: 700; font-size: 13.5px; color: var(--accent-green); }
+    .arch-node .node-sub { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+    .arch-arrow {
+      font-size: 1.4rem;
+      color: var(--accent-green);
+      opacity: 0.5;
+      margin: 0 4px;
+    }
+    @media(max-width:600px) { .arch-arrow { display:none; } .arch-pipeline { gap: 10px; } }
+
+    /* ── Params table ── */
+    .params-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .params-table tr { border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .params-table tr:last-child { border-bottom: none; }
+    .params-table td { padding: 11px 6px; }
+    .params-table td:first-child { color: var(--text-secondary); font-weight: 500; }
+    .params-table td:last-child { color: var(--text-primary); font-weight: 600; text-align: right; }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      margin-top: 60px;
+      padding-top: 28px;
+      border-top: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .footer strong { color: var(--accent-green); }
+
+    /* scroll-based reveal */
+    .reveal { opacity: 0; transform: translateY(24px); transition: opacity .6s, transform .6s; }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- ──────────── HEADER ──────────── -->
+  <header class="header reveal">
+    <div class="badge"><span class="dot"></span>Model Performance Report</div>
+    <h1>🌿 Krishika AI<br/>Crop Disease Detector</h1>
+    <p>VGG19 + per-crop SVM pipeline trained across <strong style="color:#00e87a">17 crop species</strong> — achieving up to <strong style="color:#00e87a">99.93%</strong> test accuracy on real leaf imagery.</p>
+    <div class="arch-tag">
+      <span>🧠 VGG19 (ImageNet)</span>
+      <span>🔬 SVM Classifier</span>
+      <span>🌾 17 Crops</span>
+      <span>📐 512-dim Features</span>
+      <span>🐍 TensorFlow + Scikit-learn</span>
+    </div>
+  </header>
+
+  <!-- ──────────── STATS ROW ──────────── -->
+  <div class="stats-row reveal">
+    <div class="stat-card">
+      <div class="stat-icon">🏆</div>
+      <div class="stat-value" id="avgAcc">—</div>
+      <div class="stat-label">Average Accuracy</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🌾</div>
+      <div class="stat-value">17</div>
+      <div class="stat-label">Crops Supported</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🔖</div>
+      <div class="stat-value">80+</div>
+      <div class="stat-label">Disease Classes</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📸</div>
+      <div class="stat-value">30K+</div>
+      <div class="stat-label">Training Images</div>
+    </div>
+  </div>
+
+  <!-- ──────────── BAR CHART ──────────── -->
+  <div class="chart-card reveal">
+    <div class="section-title">📊 Per-Crop Test Accuracy</div>
+    <div class="bar-list" id="barList"></div>
+  </div>
+
+  <!-- ──────────── DETAIL CARDS ──────────── -->
+  <div class="section-title reveal">🔬 Crop-Level Details</div>
+  <div class="detail-grid" id="detailGrid"></div>
+
+  <!-- ──────────── ARCHITECTURE ──────────── -->
+  <div class="arch-card reveal">
+    <div class="section-title">🏗️ Model Architecture</div>
+    <div class="arch-pipeline">
+      <div class="arch-node">
+        <div class="node-icon">🖼️</div>
+        <div class="node-title">Input</div>
+        <div class="node-sub">224 × 224 px<br/>Leaf Photo</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="node-icon">🧠</div>
+        <div class="node-title">VGG19</div>
+        <div class="node-sub">Frozen ImageNet<br/>Feature Backbone</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="node-icon">🔢</div>
+        <div class="node-title">GAP Layer</div>
+        <div class="node-sub">Global Avg Pool<br/>512-dim vector</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="node-icon">⚙️</div>
+        <div class="node-title">SVM (RBF)</div>
+        <div class="node-sub">Per-crop classifier<br/>C = 1.0</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="node-icon">📋</div>
+        <div class="node-title">Diagnosis</div>
+        <div class="node-sub">Disease + Remedy<br/>Report</div>
+      </div>
+    </div>
+
+    <div style="margin-top:28px;">
+      <div class="section-title" style="font-size:1rem;">⚙️ Training Parameters</div>
+      <table class="params-table">
+        <tr><td>Base Model</td><td>VGG19 (ImageNet weights, frozen)</td></tr>
+        <tr><td>Input Resolution</td><td>224 × 224 pixels</td></tr>
+        <tr><td>Feature Vector</td><td>512-dim (Global Average Pooling)</td></tr>
+        <tr><td>Classifier</td><td>SVM — RBF kernel, C = 1.0, probability=True</td></tr>
+        <tr><td>Train / Test Split</td><td>80% / 20% (stratified)</td></tr>
+        <tr><td>Max Samples / Class</td><td>2,500 (augmented)</td></tr>
+        <tr><td>Batch Size</td><td>32</td></tr>
+        <tr><td>Augmentation</td><td>Rotation ±30°, Flip H/V, Zoom, Shear, Shift</td></tr>
+        <tr><td>Framework</td><td>TensorFlow 2.x + Scikit-learn</td></tr>
+        <tr><td>Deployment</td><td>Gradio (HuggingFace Spaces)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ──────────── FOOTER ──────────── -->
+  <footer class="footer reveal">
+    <strong>Krishika AI</strong> — Smart Agriculture Diagnosis<br/>
+    Built with ❤️ for Indian agriculture · VGG19 + SVM · 17 Crops · Gradio Interface<br/>
+    <span style="font-size:11px;opacity:.6">Arjun Maurya · github.com/Arjun-maurya7/crop-disease-detector</span>
+  </footer>
+
+</div>
+
+<script>
+  // ── Real training data from Training.ipynb ──
+  const crops = [
+    { name: 'Apricot',   acc: 99.93, classes: 3,  imgs: 1796, diseases: ['Blight Leaf', 'Normal', 'Shot Hole'] },
+    { name: 'Lychee',    acc: 99.53, classes: 6,  imgs: 3760, diseases: ['Algal Spot', 'Anthracnose', 'Dry Leaves', 'Entomosporium', 'Leaf Mites', 'Mayetiola'] },
+    { name: 'Apple',     acc: 99.87, classes: 3,  imgs: 2353, diseases: ['Black Spot', 'Brown Spot', 'Normal'] },
+    { name: 'Radish',    acc: 99.24, classes: 5,  imgs: 2801, diseases: ['Black Leaf Spot', 'Downy Mildew', 'Flea Beetle', 'Fresh Leaf', 'Mosaic Virus'] },
+    { name: 'Cashew',    acc: 98.93, classes: 3,  imgs: 1685, diseases: ['Healthy', 'Leaf Miner', 'Red Rust'] },
+    { name: 'Fig',       acc: 98.05, classes: 4,  imgs: 2291, diseases: ['Blight', 'Brown Spot', 'Normal', 'Rust'] },
+    { name: 'Guava',     acc: 98.60, classes: 7,  imgs:  451, diseases: ['Canker', 'Curling', 'Healthy', 'Leaf Spot', 'Nutritional Deficiency', 'Powdery Mildew', 'Rust'] },
+    { name: 'Walnut',    acc: 97.28, classes: 5,  imgs: 4022, diseases: ['Anthracnose', 'Blotch', 'Leaf Gall Mite', 'Normal', 'Shot Hole'] },
+    { name: 'Beans',     acc: 97.50, classes: 4,  imgs: 2568, diseases: ['Bean Rust', 'Fungal Leaf', 'Normal', 'Shot Hole'] },
+    { name: 'Cherry',    acc: 97.08, classes: 5,  imgs: 3996, diseases: ['Brown Spot', 'Leaf Scorch', 'Normal', 'Purple Leaf Spot', 'Shot Hole'] },
+    { name: 'Corn',      acc: 95.45, classes: 4,  imgs: 1860, diseases: ['Fungal Leaf', 'Gray Leaf Spot', 'Holcus Leaf Spot', 'Normal'] },
+    { name: 'Cucumber',  acc: 95.62, classes: 8,  imgs: 1289, diseases: ['Anthracnose', 'Bacterial Wilt', 'Belly Rot', 'Downy Mildew', 'Fresh Cucumber', 'Fresh Leaf', 'Gummy Stem Blight', 'Pythium Fruit Rot'] },
+    { name: 'Potato',    acc: 95.87, classes: 3,  imgs:  659, diseases: ['Fungi', 'Healthy', 'Nematode'] },
+    { name: 'Grape',     acc: 92.09, classes: 7,  imgs: 6305, diseases: ['Anthracnose', 'Brown Spot', 'Downy Mildew', 'Mites', 'Normal', 'Powdery Mildew', 'Shot Hole'] },
+    { name: 'Rice',      acc: 92.70, classes: 4,  imgs: 1569, diseases: ['Bacterial Leaf Blight', 'Brown Spot', 'Leaf Blast', 'Healthy'] },
+    { name: 'Tomato',    acc: 88.31, classes: 11, imgs:12411, diseases: ['Bacterial Spot', 'Early Blight', 'Fusarium Wilt', 'Healthy', 'Late Blight', 'Leaf Curl', 'Leaf Miner', 'Leaf Mold', 'Septoria Leaf', 'Spider Mites', 'Verticillium Wilt'] },
+    { name: 'Brinjal',   acc: 65.43, classes: 6,  imgs: 4089, diseases: ['Healthy', 'Insect Pest', 'Leaf Spot', 'Mosaic Virus', 'White Mold', 'Wilt'] },
+  ];
+
+  // sort descending for chart
+  const sorted = [...crops].sort((a, b) => b.acc - a.acc);
+
+  function tier(acc) {
+    if (acc >= 98) return { cls: 'tier-s', color: 'color-s' };
+    if (acc >= 95) return { cls: 'tier-a', color: 'color-a' };
+    if (acc >= 90) return { cls: 'tier-b', color: 'color-b' };
+    if (acc >= 75) return { cls: 'tier-c', color: 'color-c' };
+    return { cls: 'tier-d', color: 'color-d' };
+  }
+
+  // ── Bar chart ──
+  const barList = document.getElementById('barList');
+  sorted.forEach(c => {
+    const t = tier(c.acc);
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <div class="bar-label">${c.name}</div>
+      <div class="bar-track"><div class="bar-fill ${t.cls}" data-w="${c.acc}" style="width:0%"></div></div>
+      <div class="bar-pct ${t.color}">${c.acc.toFixed(2)}%</div>
+    `;
+    barList.appendChild(row);
+  });
+
+  // ── Detail cards ──
+  const grid = document.getElementById('detailGrid');
+  crops.forEach(c => {
+    const t = tier(c.acc);
+    const card = document.createElement('div');
+    card.className = 'detail-card reveal';
+    card.innerHTML = `
+      <div class="dc-header">
+        <div class="dc-name">${c.name}</div>
+        <div class="dc-acc ${t.color}">${c.acc.toFixed(2)}%</div>
+      </div>
+      <div class="dc-meta">
+        <span>📂 ${c.classes} classes</span>
+        <span>🖼️ ${c.imgs.toLocaleString()} images</span>
+      </div>
+      <div class="dc-bar-track">
+        <div class="dc-bar-fill ${t.cls}" data-w="${c.acc}" style="width:0%"></div>
+      </div>
+      <div class="dc-classes">${c.diseases.join(' · ')}</div>
+    `;
+    grid.appendChild(card);
+  });
+
+  // ── Avg accuracy ──
+  const avg = crops.reduce((s, c) => s + c.acc, 0) / crops.length;
+  document.getElementById('avgAcc').textContent = avg.toFixed(1) + '%';
+
+  // ── Animate bars on scroll ──
+  function animateBars() {
+    document.querySelectorAll('.bar-fill, .dc-bar-fill').forEach(el => {
+      const rect = el.closest('.bar-track, .dc-bar-track').getBoundingClientRect();
+      if (rect.top < window.innerHeight - 40) {
+        el.style.width = el.dataset.w + '%';
+      }
+    });
+  }
+
+  // ── Reveal on scroll ──
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        animateBars();
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  window.addEventListener('scroll', animateBars, { passive: true });
+  setTimeout(animateBars, 400);
+</script>
+</body>
+</html>

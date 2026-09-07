@@ -719,4 +719,4 @@ if __name__ == "__main__":
     t.start()
 
     print("\n🌿 Krishika AI starting (model loading in background)...\n")
-    app.launch()   # No share=True — not supported on HF Spaces
+    app.launch(server_name="0.0.0.0", server_port=7860)   # No share=True — not supported on HF Spaces

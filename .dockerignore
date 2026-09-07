@@ -1,0 +1,32 @@
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter notebooks
+*.ipynb
+Training.ipynb
+
+# Data and large folders (exclude raw datasets)
+data/
+crop leaves/
+output.zip
+
+# Machine learning checkpoints / large model files
+*.h5
+*.ckpt
+*.pth
+*.pb
+
+# Optional: exclude precomputed outputs if not required at runtime
+#output/
+
+# VCS, IDE, env
+.git/
+.vscode/
+.env
+
+# Other
+*.log
+*.tmp
+.DS_Store
